@@ -7,8 +7,11 @@ from fastapi.testclient import TestClient
 
 import wig_recommender.api as api
 from wig_recommender.face import FaceError, find_landmarks
-from wig_recommender.fit import EYES, fill_from_background, fit_wig, has_image, placement
+from wig_recommender.fit import (
+    EYES, _include_thin_strands, fill_from_background, fit_wig, has_image, placement,
+)
 from wig_recommender.library import load_library
+from wig_recommender.tryon import FACE_OVAL
 
 PHOTO = Path.home() / "ai-avatar-platform/test-photo/bhargav.jpg"
 needs_photo = pytest.mark.skipif(not PHOTO.exists(), reason="test photo missing")
@@ -33,26 +36,92 @@ def test_placement_scales_and_shifts():
     assert np.allclose(np.hypot(*m[:, 0]), 2, atol=0.01)  # scale 2, no rotation
 
 
-# ---------- background fill ----------
+# ---------- strand mask and background fill ----------
+
+def test_strand_mask_adds_thin_dark_lines_but_not_wide_objects():
+    img = np.full((240, 300, 3), 180, np.uint8)
+    cv2.line(img, (138, 108), (138, 135), (20, 20, 20), 2)
+    cv2.rectangle(img, (145, 98), (173, 132), (20, 20, 20), -1)
+    erase = np.zeros(img.shape[:2], np.uint8)
+    erase[100:140, 90:130] = 255
+    empty = np.zeros_like(erase)
+    result = _include_thin_strands(img, erase, empty, empty, empty.astype(bool), 100)
+    assert result[118, 138] == 255
+    assert not result[98:133, 145:174].any()
+
+
+def test_strand_mask_threshold_12_catches_fainter_line():
+    img = np.full((180, 240, 3), 125, np.uint8)
+    cv2.line(img, (118, 75), (118, 105), (110, 110, 110), 1)
+    erase = np.zeros(img.shape[:2], np.uint8)
+    erase[75:105, 90:110] = 255
+    empty = np.zeros_like(erase)
+    at_20 = _include_thin_strands(img, erase, empty, empty, empty.astype(bool), 100, 20)
+    at_12 = _include_thin_strands(img, erase, empty, empty, empty.astype(bool), 100, 12)
+    assert at_20[90, 118] == 0
+    assert at_12[90, 118] == 255
+
+
+def test_fit_defaults_to_faint_strand_threshold():
+    import inspect
+
+    assert inspect.signature(fit_wig).parameters["blackhat_threshold"].default == 12
+
+
+def test_strand_mask_excludes_face_head_and_wig():
+    img = np.full((180, 240, 3), 180, np.uint8)
+    cv2.line(img, (118, 75), (118, 105), (20, 20, 20), 2)
+    erase = np.zeros(img.shape[:2], np.uint8)
+    erase[75:105, 90:110] = 255
+    face = np.zeros_like(erase)
+    face[65:115, 112:145] = 255
+    head = np.zeros_like(erase)
+    head[60:120, 110:160] = 255
+    wig = np.zeros(img.shape[:2], bool)
+    wig[70:110, 115:135] = True
+    result = _include_thin_strands(img, erase, face, head, wig, 100)
+    assert (result[face > 0] == 0).all()
+    assert (result[head > 0] == 0).all()
+    assert (result[wig] == 0).all()
+
 
 def test_fill_uses_only_background_colours():
-    img = np.zeros((200, 200, 3), np.uint8)
-    img[:, :] = (200, 200, 200)        # grey wall
-    img[80:120, 80:120] = (0, 0, 255)  # red "face" right next to the hole
-    erase = np.zeros((200, 200), np.uint8)
-    erase[60:80, 60:140] = 255
-    bg = np.ones((200, 200), bool)
-    bg[80:120, 80:120] = False
-    out = fill_from_background(img, erase, bg)
-    hole = out[65:75, 70:130].reshape(-1, 3).astype(int)
-    assert np.abs(hole - 200).max() < 15  # filled with wall grey, no red dragged in
+    img = np.full((200, 240, 3), 190, np.uint8)
+    img[65:145, 145:220] = (0, 0, 255)  # invalid face pixels
+    img[130:200, 45:160] = (0, 255, 0)  # invalid jacket pixels
+    erase = np.zeros((200, 240), np.uint8)
+    erase[75:125, 75:150] = 255
+    background = np.ones((200, 240), bool)
+    background[65:145, 145:220] = False
+    background[130:200, 45:160] = False
+    out = fill_from_background(img, erase, background)
+    edge = out[80:120, 80:125].astype(np.int16)
+    assert np.abs(edge - 190).max() <= 12
+    hole = out[88:112, 95:130].reshape(-1, 3).astype(int)
+    assert np.abs(hole - 190).max() <= 12
+
+
+def test_fill_has_no_hard_jumps_inside_large_hole():
+    height, width = 300, 360
+    gradient = np.tile(np.linspace(80, 180, width, dtype=np.uint8), (height, 1))
+    img = np.repeat(gradient[..., None], 3, axis=2)
+    erase = np.zeros((height, width), np.uint8)
+    erase[80:220, 100:260] = 255
+    out = fill_from_background(img, erase, np.ones((height, width), bool))
+    interior = out[100:200, 120:240, 0].astype(np.int16)
+    max_step = max(
+        np.abs(np.diff(interior, axis=0)).max(),
+        np.abs(np.diff(interior, axis=1)).max(),
+    )
+    assert max_step <= 2
 
 
 def test_fill_without_background_falls_back():
     img = np.full((50, 50, 3), 90, np.uint8)
     erase = np.zeros((50, 50), np.uint8)
     erase[10:20, 10:20] = 255
-    assert fill_from_background(img, erase, np.zeros((50, 50), bool)).shape == img.shape
+    out = fill_from_background(img, erase, np.zeros((50, 50), bool))
+    assert np.array_equal(out, img)
 
 
 # ---------- whole fit on the real photo ----------
@@ -64,6 +133,9 @@ def test_fit_keeps_face_and_eyes_identical():
     pts, _ = find_landmarks(img)
     out = fit_wig(img, WIGS["side-part"])
     assert out.shape == img.shape
+    face = np.zeros(img.shape[:2], np.uint8)
+    cv2.fillPoly(face, [pts[FACE_OVAL].astype(np.int32)], 255)
+    assert np.array_equal(out[face > 0], img[face > 0])
     for i in [1, 13, 14] + EYES:  # nose, lips, eyes
         x, y = pts[i].astype(int)
         assert (out[y - 3:y + 4, x - 3:x + 4] == img[y - 3:y + 4, x - 3:x + 4]).all(), i

@@ -4,10 +4,9 @@
               chin were. We find the same points on the customer and compute one
               scale + rotation + shift that maps one set onto the other.
 2. Erase    - the customer's own hair that would stick out from under the wig is
-              erased (filled from the surrounding background). Optionally the
-              local AI cleans that fill up; it only ever paints that area.
-3. Place    - the wig image is laid on top. The eyes are always kept visible.
-Nothing about the face is generated: it is the customer's own photo.
+              filled from nearby background pixels.
+3. Place    - the wig image is laid on top, outside the face. The eyes stay visible.
+The customer's face is never inpainted or covered.
 """
 import json
 from pathlib import Path
@@ -15,7 +14,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-from .face import FaceError, find_landmarks
+from .face import CHEEK_L, CHEEK_R, FaceError, find_landmarks
 from .library import DEFAULT_PATH, Wig
 from .tryon import CORE, FACE_OVAL, HAIR, run_comfy, segment, segment_confidence
 
@@ -63,7 +62,7 @@ def _poly(shape, pts, ids, convex=False) -> np.ndarray:
 
 
 def fit_wig(img: np.ndarray, wig: Wig, ai_cleanup: bool = False, painter=run_comfy,
-            seed: int = 1) -> np.ndarray:
+            seed: int = 1, blackhat_threshold: int = 12) -> np.ndarray:
     pts, _ = find_landmarks(img)
     rgba, anchors = load_wig_image(wig.id)
     h, w = img.shape[:2]
@@ -72,11 +71,13 @@ def fit_wig(img: np.ndarray, wig: Wig, ai_cleanup: bool = False, painter=run_com
     m = placement(anchors, pts)
     wig_rgb = cv2.warpAffine(rgba[..., :3], m, (w, h), flags=cv2.INTER_LINEAR)
     alpha = cv2.warpAffine(rgba[..., 3], m, (w, h), flags=cv2.INTER_LINEAR).astype(np.float32) / 255
+    wig_area = alpha > 0.05
     eyes = cv2.dilate(_poly((h, w), pts, EYES, convex=True), np.ones((21, 21), np.uint8))
     alpha[eyes > 0] = 0  # a long fringe never hides the eyes
 
     # 2. erase the customer's hair that the wig doesn't cover (never the face)
     face = _poly((h, w), pts, FACE_OVAL) | _poly((h, w), pts, CORE, convex=True)
+    alpha[face > 0] = 0  # never blend catalogue pixels over the customer's face
     # low threshold + grow so faint wispy curls are caught too
     hair = (segment_confidence(img, HAIR) > 0.1).astype(np.uint8) * 255
     hair = cv2.dilate(hair, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (31, 31)))
@@ -86,6 +87,10 @@ def fit_wig(img: np.ndarray, wig: Wig, ai_cleanup: bool = False, painter=run_com
     head = np.zeros((h, w), np.uint8)
     cv2.fillConvexPoly(head, cv2.convexHull(head_pts), 255)
     erase = ((hair > 0) & (alpha < 0.6) & (face == 0) & (head == 0)).astype(np.uint8) * 255
+    erase = _include_thin_strands(
+        img, erase, face, head, wig_area,
+        float(np.linalg.norm(pts[CHEEK_L] - pts[CHEEK_R])), blackhat_threshold,
+    )
     base = img
     if erase.any():
         base = fill_from_background(img, erase, segment(img) == 0)
@@ -93,31 +98,79 @@ def fit_wig(img: np.ndarray, wig: Wig, ai_cleanup: bool = False, painter=run_com
             base = _ai_erase(base, erase, painter, seed)
 
     # 3. lay the wig on top
-    a = cv2.GaussianBlur(alpha, (3, 3), 0)[..., None]
-    return (a * wig_rgb + (1 - a) * base).astype(np.uint8)
+    blended_alpha = cv2.GaussianBlur(alpha, (3, 3), 0)
+    blended_alpha[face > 0] = 0
+    a = blended_alpha[..., None]
+    out = (a * wig_rgb + (1 - a) * base).astype(np.uint8)
+    out[face > 0] = img[face > 0]
+    return out
+
+
+def _include_thin_strands(
+    img: np.ndarray,
+    erase: np.ndarray,
+    face: np.ndarray,
+    head: np.ndarray,
+    wig_area: np.ndarray,
+    cheek_width: float,
+    blackhat_threshold: int = 20,
+) -> np.ndarray:
+    """Add nearby thin dark strands without extending into face, head, or wig."""
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    blackhat = cv2.morphologyEx(
+        gray, cv2.MORPH_BLACKHAT, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (15, 15))
+    )
+    band_size = max(3, int(round(0.6 * cheek_width)) | 1)
+    band = cv2.dilate(
+        (erase > 0).astype(np.uint8),
+        cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (band_size, band_size)),
+    ) > 0
+    allowed = band & (erase == 0) & (face == 0) & (head == 0) & ~wig_area
+    dark = (gray < 120) & allowed
+
+    count, labels, _, _ = cv2.connectedComponentsWithStats(dark.astype(np.uint8), 8)
+    if count <= 1:
+        return erase
+    distance = cv2.distanceTransform(dark.astype(np.uint8), cv2.DIST_L2, 5)
+    max_distance = np.zeros(count, np.float32)
+    np.maximum.at(max_distance, labels.ravel(), distance.ravel())
+    thin_labels = np.flatnonzero((max_distance <= 7.5) & (np.arange(count) > 0))
+    thin_dark = np.isin(labels, thin_labels)
+    strands = (blackhat > blackhat_threshold) & thin_dark
+    strands = cv2.dilate(strands.astype(np.uint8), np.ones((3, 3), np.uint8)) > 0
+    strands &= allowed
+    return erase | (strands.astype(np.uint8) * 255)
 
 
 def fill_from_background(img: np.ndarray, erase: np.ndarray, background: np.ndarray) -> np.ndarray:
-    """Fill the erased area using ONLY real background pixels (the wall), blurred
-    over a few sizes so large holes still fill smoothly. Unlike OpenCV's inpaint it
-    never drags face or hair colours into the gap."""
+    """Push valid background colours into erased areas through a weighted pyramid."""
     valid = (background & (erase == 0)).astype(np.float32)
-    if valid.sum() < 100:  # almost no background visible: fall back to plain inpaint
-        return cv2.inpaint(img, erase, 7, cv2.INPAINT_TELEA)
-    src = img.astype(np.float32) * valid[..., None]
-    fill = np.zeros_like(src)
-    have = np.zeros(valid.shape, np.float32)
-    for k in (31, 101, 301, 901):  # small blur first, bigger ones fill what's left
-        k = min(k, max(3, (min(img.shape[:2]) // 2) | 1))
-        num = cv2.blur(src, (k, k))
-        den = cv2.blur(valid, (k, k))
-        ok = (den > 1e-3) & (have == 0)
-        fill[ok] = num[ok] / den[ok][..., None]
-        have[ok] = 1
+    if not valid.any():
+        return img.copy()
+
+    image_levels = [img.astype(np.float32)]
+    weight_levels = [valid]
+    while min(weight_levels[-1].shape) > 1 and not np.all(weight_levels[-1] > 1e-6):
+        current_image, current_weight = image_levels[-1], weight_levels[-1]
+        numerator = cv2.pyrDown(current_image * current_weight[..., None])
+        weight = cv2.pyrDown(current_weight)
+        image = np.zeros_like(numerator)
+        covered = weight > 1e-6
+        image[covered] = numerator[covered] / weight[covered, None]
+        image_levels.append(image)
+        weight_levels.append(weight)
+
+    fill = image_levels[-1]
+    for level in range(len(image_levels) - 2, -1, -1):
+        height, width = weight_levels[level].shape
+        fill = cv2.pyrUp(fill, dstsize=(width, height))
+        real = weight_levels[level] > 1e-6
+        fill[real] = image_levels[level][real]
+
     out = img.copy()
-    m = erase > 0
-    out[m] = np.clip(fill[m], 0, 255).astype(np.uint8)
-    soft = cv2.GaussianBlur(erase, (15, 15), 0)[..., None] / 255.0  # no hard seam
+    mask = erase > 0
+    out[mask] = np.clip(fill[mask], 0, 255).astype(np.uint8)
+    soft = cv2.GaussianBlur(erase, (5, 5), 0)[..., None] / 255.0
     return (soft * out + (1 - soft) * img).astype(np.uint8)
 
 

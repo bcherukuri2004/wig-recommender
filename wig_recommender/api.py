@@ -115,8 +115,8 @@ def fit_endpoint(
     wig_id: str = Query(..., max_length=100),
     ai: bool = False,
 ):
-    """Lenskart-style try-on: the catalogue wig image placed on the photo.
-    Instant (~2 s). ai=true also has the local AI clean up where hair was erased (~2 min)."""
+    """Place a catalogue wig and fill exposed hair regions from the background.
+    ai=true also asks the local AI to clean up erased regions."""
     if wig_id not in WIGS:
         raise HTTPException(404, f"unknown wig id {wig_id!r}")
     if not has_image(wig_id):
