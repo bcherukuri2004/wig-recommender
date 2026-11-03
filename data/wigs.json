@@ -1,0 +1,14 @@
+[
+  {"id": "pixie-sleek", "name": "Sleek Pixie", "gender": "women", "length": "pixie", "fringe": "side", "texture": "straight", "volume": "low", "colours": ["dark brown", "black"]},
+  {"id": "bob-fringe", "name": "Bob with Full Fringe", "gender": "women", "length": "bob", "fringe": "full", "texture": "straight", "volume": "medium", "colours": ["black", "dark brown", "burgundy"]},
+  {"id": "bob-wavy-side", "name": "Wavy Side-Part Bob", "gender": "women", "length": "bob", "fringe": "side", "texture": "wavy", "volume": "medium", "colours": ["brown", "honey blonde"]},
+  {"id": "lob-layered", "name": "Layered Lob", "gender": "women", "length": "medium", "fringe": "side", "texture": "wavy", "volume": "medium", "colours": ["brown", "black", "blonde"]},
+  {"id": "medium-curls", "name": "Shoulder Curls", "gender": "women", "length": "medium", "fringe": "full", "texture": "curly", "volume": "high", "colours": ["black", "auburn"]},
+  {"id": "long-waves", "name": "Long Beach Waves", "gender": "women", "length": "long", "fringe": "none", "texture": "wavy", "volume": "high", "colours": ["brown", "blonde", "auburn"]},
+  {"id": "crew-cut", "name": "Classic Crew Cut", "gender": "men", "length": "pixie", "fringe": "none", "texture": "straight", "volume": "low", "colours": ["black", "dark brown"]},
+  {"id": "side-part", "name": "Gentleman's Side Part", "gender": "men", "length": "short", "fringe": "side", "texture": "straight", "volume": "medium", "colours": ["dark brown", "black"]},
+  {"id": "textured-crop", "name": "Textured Crop", "gender": "men", "length": "short", "fringe": "full", "texture": "straight", "volume": "medium", "colours": ["brown", "black"]},
+  {"id": "quiff", "name": "Volume Quiff", "gender": "men", "length": "short", "fringe": "none", "texture": "wavy", "volume": "high", "colours": ["black", "brown"]},
+  {"id": "curly-top", "name": "Curly Top", "gender": "men", "length": "short", "fringe": "full", "texture": "curly", "volume": "high", "colours": ["black", "dark brown"]},
+  {"id": "mens-flow", "name": "Shoulder-Length Flow", "gender": "men", "length": "medium", "fringe": "none", "texture": "wavy", "volume": "medium", "colours": ["brown", "dark brown"]}
+]

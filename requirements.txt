@@ -1,0 +1,8 @@
+fastapi==0.143.0
+httpx==0.28.1
+mediapipe==0.10.14
+numpy==2.5.4
+opencv-python-headless==5.0.0.93
+pytest==9.1.1
+python-multipart==0.0.32
+uvicorn==0.54.0

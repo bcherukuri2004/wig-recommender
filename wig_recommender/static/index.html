@@ -1,0 +1,200 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Wig Studio</title>
+<style>
+  :root { --bg:#f7f5f2; --card:#fff; --ink:#1f1d1b; --muted:#77716b; --accent:#9c3d5f; --accent-ink:#fff;
+          --line:#e8e2db; --soft:#f1ebe6; --good:#2f7d4f; }
+  [hidden] { display:none !important }
+  * { box-sizing:border-box } body { margin:0; font:15px/1.5 system-ui,-apple-system,sans-serif; background:var(--bg); color:var(--ink) }
+  button { font:inherit; cursor:pointer } img { display:block; max-width:100% }
+  header { display:flex; align-items:center; gap:12px; padding:14px 16px; background:var(--card); border-bottom:1px solid var(--line); position:sticky; top:0; z-index:5 }
+  header h1 { font-size:20px; margin:0; flex:1 } header h1 span { color:var(--accent) }
+  .me { display:flex; align-items:center; gap:8px; border:1px solid var(--line); border-radius:24px; padding:3px 12px 3px 3px; background:var(--soft) }
+  .me img { width:32px; height:32px; border-radius:50%; object-fit:cover }
+  main { max-width:1100px; margin:0 auto; padding:20px 16px 60px }
+  .tabs { display:flex; gap:8px; margin-bottom:16px } .tabs button { border:1px solid var(--line); background:var(--card); border-radius:20px; padding:6px 16px }
+  .tabs button.on { background:var(--ink); color:#fff; border-color:var(--ink) }
+  .shape { color:var(--muted); margin:-6px 0 16px } .shape b { color:var(--accent); text-transform:capitalize }
+  .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(200px,1fr)); gap:16px }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:14px; overflow:hidden; position:relative; cursor:pointer; transition:box-shadow .15s }
+  .card:hover { box-shadow:0 6px 20px rgba(0,0,0,.08) }
+  .card .pic { aspect-ratio:1; background:var(--soft); display:flex; align-items:center; justify-content:center; padding:14px }
+  .card .pic img { max-height:100%; object-fit:contain } .card .pic .none { color:var(--muted); font-size:13px; text-align:center }
+  .card .info { padding:10px 12px 12px } .card h3 { margin:0; font-size:15px } .card .sub { color:var(--muted); font-size:13px; text-transform:capitalize }
+  .badge { position:absolute; top:10px; left:10px; background:var(--good); color:#fff; font-size:12px; padding:2px 8px; border-radius:10px }
+  .btn { background:var(--accent); color:var(--accent-ink); border:0; border-radius:10px; padding:10px 18px; font-weight:600 }
+  .btn.ghost { background:transparent; color:var(--ink); border:1px solid var(--line) } .btn:disabled { opacity:.5; cursor:wait }
+  .overlay { position:fixed; inset:0; background:rgba(20,18,16,.55); display:none; align-items:center; justify-content:center; padding:16px; z-index:10 }
+  .overlay.open { display:flex }
+  .panel { background:var(--card); border-radius:18px; width:min(960px,100%); max-height:94vh; overflow:auto; padding:20px; position:relative }
+  .x { position:absolute; top:10px; right:12px; border:0; background:none; font-size:24px; color:var(--muted) }
+  .product { display:grid; grid-template-columns:1.1fr 1fr; gap:24px } @media (max-width:720px){ .product{grid-template-columns:1fr} }
+  .product .pic { background:var(--soft); border-radius:14px; padding:24px; display:flex; justify-content:center } .product .pic img { max-height:380px }
+  .chips span { display:inline-block; background:var(--soft); border-radius:14px; padding:2px 10px; margin:0 6px 6px 0; font-size:13px; text-transform:capitalize }
+  .cam { position:relative; background:#000; border-radius:14px; overflow:hidden; aspect-ratio:4/3; max-width:640px; margin:0 auto }
+  .cam video, .cam img { width:100%; height:100%; object-fit:cover } .cam video { transform:scaleX(-1) }
+  .cam .oval { position:absolute; left:50%; top:46%; width:42%; height:66%; transform:translate(-50%,-50%); border:3px dashed rgba(255,255,255,.85); border-radius:50% }
+  .tips { text-align:center; color:var(--muted); margin:10px 0 } .row { display:flex; gap:10px; justify-content:center; flex-wrap:wrap; margin-top:12px }
+  .result { display:grid; grid-template-columns:2fr 1fr; gap:20px } @media (max-width:760px){ .result{grid-template-columns:1fr} }
+  .stage { position:relative; background:var(--soft); border-radius:14px; overflow:hidden; min-height:240px } .stage img { width:100% }
+  .busy { position:absolute; inset:0; background:rgba(255,255,255,.7); display:flex; align-items:center; justify-content:center; font-weight:600 }
+  .strip { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; margin-top:10px }
+  .strip button { border:2px solid var(--line); background:var(--soft); border-radius:10px; padding:6px; aspect-ratio:1 } .strip button.on { border-color:var(--accent) }
+  .strip img { width:100%; height:100%; object-fit:contain }
+  .err { background:#fde2e2; color:#7a1d1d; border-radius:10px; padding:8px 12px; margin-top:10px }
+  .note { color:var(--muted); font-size:13px }
+</style>
+</head>
+<body>
+<header>
+  <h1>Wig <span>Studio</span></h1>
+  <div class="me" id="me" hidden><img id="meImg" alt="Your photo"><button class="btn ghost" style="padding:2px 10px" id="retake">Retake</button></div>
+</header>
+<main>
+  <div class="tabs" id="tabs"><button data-g="" class="on">All</button><button data-g="women">Women</button><button data-g="men">Men</button></div>
+  <p class="shape" id="shape">Pick a wig, then try it on with your camera or a photo.</p>
+  <div class="grid" id="grid"></div>
+</main>
+
+<div class="overlay" id="productBox"><div class="panel"><button class="x" data-close>×</button><div id="product"></div></div></div>
+
+<div class="overlay" id="camBox"><div class="panel">
+  <button class="x" data-close>×</button>
+  <h2 style="margin:0 0 4px">Take your photo</h2>
+  <p class="tips">Face a light source · look straight at the camera · fit your face in the oval · pull your hair back if you can</p>
+  <div class="cam"><video id="video" autoplay playsinline muted></video><div class="oval"></div></div>
+  <div class="row">
+    <button class="btn" id="snap">📸 Take photo</button>
+    <label class="btn ghost">Upload a photo<input type="file" id="upload" accept="image/*" hidden></label>
+  </div>
+  <div id="camErr"></div>
+</div></div>
+
+<div class="overlay" id="resultBox"><div class="panel"><button class="x" data-close>×</button><div id="result"></div></div></div>
+
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+let wigs = [], gender = '', photo = null, ranks = {}, faceShape = null, pending = null, current = null, stream = null;
+const fits = new Map();   // wig id -> object URL of the try-on result for the current photo
+
+async function load() { wigs = await (await fetch('/wigs')).json(); render(); }
+
+function render() {
+  const list = wigs.filter(w => !gender || w.gender === gender || w.gender === 'unisex')
+                   .sort((a, b) => (ranks[a.id] ?? 99) - (ranks[b.id] ?? 99));
+  $('grid').innerHTML = list.map(w => `
+    <div class="card" data-id="${esc(w.id)}">
+      ${ranks[w.id] === 0 ? '<span class="badge">Best for your face</span>' : ranks[w.id] < 3 ? '<span class="badge">Great match</span>' : ''}
+      <div class="pic">${w.image ? `<img src="${esc(w.image)}" alt="${esc(w.name)}" loading="lazy">` : '<div class="none">Image being<br>generated…</div>'}</div>
+      <div class="info"><h3>${esc(w.name)}</h3><div class="sub">${esc(w.gender)} · ${esc(w.length)} · ${esc(w.texture)}</div></div>
+    </div>`).join('');
+  document.querySelectorAll('.card').forEach(c => c.onclick = () => openProduct(c.dataset.id));
+  $('shape').innerHTML = faceShape ? `Your face shape looks <b>${esc(faceShape)}</b>. Wigs are sorted by how well they suit it.`
+                                   : 'Pick a wig, then try it on with your camera or a photo.';
+}
+
+$('tabs').onclick = e => { if (!e.target.dataset) return; gender = e.target.dataset.g ?? gender;
+  document.querySelectorAll('#tabs button').forEach(b => b.classList.toggle('on', b.dataset.g === gender));
+  if (photo) rankFor(photo); render(); };
+
+function open(id) { $(id).classList.add('open'); }
+function close(id) { $(id).classList.remove('open'); if (id === 'camBox') stopCam(); }
+document.querySelectorAll('[data-close]').forEach(b => b.onclick = () => close(b.closest('.overlay').id));
+
+function openProduct(id) {
+  const w = wigs.find(x => x.id === id);
+  $('product').innerHTML = `<div class="product">
+    <div class="pic">${w.image ? `<img src="${esc(w.image)}" alt="${esc(w.name)}">` : '<p class="note">Image being generated…</p>'}</div>
+    <div><h2 style="margin:0">${esc(w.name)}</h2>
+      <p class="note" style="text-transform:capitalize">${esc(w.gender)}'s wig</p>
+      <div class="chips"><span>${esc(w.length)}</span><span>${esc(w.texture)}</span><span>${esc(w.fringe)} fringe</span><span>${esc(w.volume)} volume</span></div>
+      <p><b>Colours:</b> ${w.colours.map(esc).join(', ')}</p>
+      ${ranks[id] !== undefined ? `<p class="note">#${ranks[id] + 1} match for your ${esc(faceShape)} face</p>` : ''}
+      <button class="btn" id="tryBtn" ${w.image ? '' : 'disabled'}>Try On</button></div></div>`;
+  $('tryBtn').onclick = () => { close('productBox'); tryOn(id); };
+  open('productBox');
+}
+
+// ---------- capture ----------
+async function startCam() {
+  $('camErr').innerHTML = '';
+  try { stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: 1280, height: 960 } });
+        $('video').srcObject = stream; }
+  catch (e) { $('camErr').innerHTML = `<div class="err">Camera not available (${esc(e.name)}). Upload a photo instead.</div>`; }
+}
+function stopCam() { stream?.getTracks().forEach(t => t.stop()); stream = null; }
+
+function tryOn(id) {
+  current = id;
+  if (photo) return showResult(id);
+  pending = id; open('camBox'); startCam();
+}
+$('snap').onclick = () => {
+  const v = $('video'); if (!v.videoWidth) return;
+  const c = document.createElement('canvas'); c.width = v.videoWidth; c.height = v.videoHeight;
+  const g = c.getContext('2d'); g.translate(c.width, 0); g.scale(-1, 1); g.drawImage(v, 0, 0);  // mirror like the preview
+  c.toBlob(b => setPhoto(b), 'image/jpeg', 0.92);
+};
+$('upload').onchange = e => e.target.files[0] && setPhoto(e.target.files[0]);
+$('retake').onclick = () => { pending = current; open('camBox'); startCam(); };
+
+async function setPhoto(blob) {
+  const r = await post('/recommend?top_k=20' + (gender ? '&gender=' + gender : ''), blob);
+  if (!r.ok) { $('camErr').innerHTML = `<div class="err">${esc(await errText(r))}</div>`; return; }
+  photo = blob; fits.forEach(URL.revokeObjectURL); fits.clear();
+  applyRanks(await r.json());
+  $('meImg').src = URL.createObjectURL(blob); $('me').hidden = false;
+  close('camBox'); render();
+  if (pending) { showResult(pending); pending = null; }
+}
+async function rankFor(blob) {
+  const r = await post('/recommend?top_k=20' + (gender ? '&gender=' + gender : ''), blob);
+  if (r.ok) { applyRanks(await r.json()); render(); }
+}
+function applyRanks(body) { ranks = {}; body.recommendations.forEach((x, i) => ranks[x.wig.id] = i); faceShape = body.face.shape; }
+
+// ---------- result ----------
+function showResult(id) {
+  current = id; open('resultBox');
+  const others = wigs.filter(w => w.image && (!gender || w.gender === gender)).sort((a, b) => (ranks[a.id] ?? 99) - (ranks[b.id] ?? 99));
+  const w = wigs.find(x => x.id === id);
+  $('result').innerHTML = `<div class="result">
+    <div><div class="stage" id="stage"></div><div id="resErr"></div></div>
+    <div><h2 style="margin:0">${esc(w.name)}</h2>
+      ${faceShape ? `<p class="note">Face shape: ${esc(faceShape)}${ranks[id] !== undefined ? ` · #${ranks[id] + 1} match` : ''}</p>` : ''}
+      <div class="row" style="justify-content:flex-start">
+        <button class="btn" id="aiBtn">✨ Make it realistic</button><a class="btn ghost" id="dl" download="wig-${esc(id)}.jpg">Download</a></div>
+      <p class="note">Instant view places the wig on your photo. "Make it realistic" lets the AI clean up where your own hair was erased (about 2 minutes).</p>
+      <b>Try another</b><div class="strip">${others.map(o => `<button data-id="${esc(o.id)}" class="${o.id === id ? 'on' : ''}" title="${esc(o.name)}"><img src="${esc(o.image)}" alt="${esc(o.name)}"></button>`).join('')}</div>
+    </div></div>`;
+  document.querySelectorAll('.strip button').forEach(b => b.onclick = () => showResult(b.dataset.id));
+  $('aiBtn').onclick = () => render1(id, true);
+  render1(id, false);
+}
+async function render1(id, ai) {
+  const key = id + (ai ? ':ai' : '');
+  const stage = $('stage'); if (!stage) return;
+  if (!fits.has(key)) {
+    const t0 = Date.now();
+    stage.insertAdjacentHTML('beforeend', `<div class="busy" id="busy">${ai ? 'AI is cleaning up… 0s' : 'Fitting wig…'}</div>`);
+    const tick = ai && setInterval(() => { const b = $('busy'); if (b) b.textContent = `AI is cleaning up… ${Math.round((Date.now() - t0) / 1000)}s`; }, 1000);
+    if ($('aiBtn')) $('aiBtn').disabled = true;
+    const r = await post(`/fit?wig_id=${encodeURIComponent(id)}${ai ? '&ai=true' : ''}`, photo);
+    clearInterval(tick); if ($('aiBtn')) $('aiBtn').disabled = false;
+    if (!r.ok) { $('busy')?.remove(); if (current === id) $('resErr').innerHTML = `<div class="err">${esc(await errText(r))}</div>`; return; }
+    fits.set(key, URL.createObjectURL(await r.blob()));
+  }
+  if (current !== id) return;   // user already switched to another wig
+  $('stage').innerHTML = `<img src="${fits.get(key)}" alt="You wearing the wig">`;
+  $('dl').href = fits.get(key);
+}
+
+function post(url, blob) { const fd = new FormData(); fd.append('photo', blob, 'photo.jpg'); return fetch(url, { method: 'POST', body: fd }); }
+async function errText(r) { try { const b = await r.json(); return b.detail?.[0]?.msg || b.detail || r.statusText; } catch { return r.statusText; } }
+load();
+</script>
+</body>
+</html>
